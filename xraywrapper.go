@@ -41,7 +41,6 @@ import (
 	_ "github.com/xtls/xray-core/transport/internet/websocket"
 )
 
-// Global state (single embedded instance for simplicity). Adjust if you need multi-instance.
 var (
 	instMu   sync.Mutex
 	instance *core.Instance
@@ -59,7 +58,6 @@ func setErr(err error) C.int {
 	return 1
 }
 
-// writeLog is a very small logger sink you can poll from C.
 func writeLog(msg string) {
 	logBufMu.Lock()
 	defer logBufMu.Unlock()
@@ -71,11 +69,6 @@ func writeLog(msg string) {
 	}
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Utilities to create and run Xray instance
-// ──────────────────────────────────────────────────────────────────────────────
-
-// buildInstance builds a core.Instance from JSON config bytes.
 func buildInstance(jsonCfg []byte) (*core.Instance, error) {
 	r := bytes.NewReader(jsonCfg)
 
@@ -96,7 +89,6 @@ func buildInstance(jsonCfg []byte) (*core.Instance, error) {
 	return ins, nil
 }
 
-// startInstance starts the instance and installs a basic logger via environment.
 func startInstance(ins *core.Instance) error {
 	if err := ins.Start(); err != nil {
 		return err
@@ -105,7 +97,6 @@ func startInstance(ins *core.Instance) error {
 	return nil
 }
 
-// stopInstance stops and closes the instance.
 func stopInstance() error {
 	if instance == nil {
 		return nil
@@ -119,18 +110,11 @@ func stopInstance() error {
 	return nil
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// C ABI (exported)
-// ──────────────────────────────────────────────────────────────────────────────
-
-//export Xray_Version
 func Xray_Version() *C.char {
 	return C.CString(core.Version())
 }
 
-//export Xray_LastError
 func Xray_LastError(buf *C.char, buflen C.uint32_t) C.uint32_t {
-	// Copy lastErr into caller-provided buffer (UTF-8, NUL-terminated)
 	s := lastErr
 	if len(s) == 0 {
 		s = ""
@@ -146,14 +130,12 @@ func Xray_LastError(buf *C.char, buflen C.uint32_t) C.uint32_t {
 	if len(b)-1 > max {
 		b = append([]byte(s[:max]), 0)
 	}
-	//nolint:gosec
 	for i := 0; i < len(b); i++ {
 		*(*byte)(unsafe.Add(unsafe.Pointer(buf), i)) = b[i]
 	}
 	return C.uint32_t(len(b) - 1)
 }
 
-//export Xray_Start
 func Xray_Start(jsonCfg *C.char) C.int {
 	instMu.Lock()
 	defer instMu.Unlock()
@@ -175,14 +157,12 @@ func Xray_Start(jsonCfg *C.char) C.int {
 	return setErr(nil)
 }
 
-//export Xray_Stop
 func Xray_Stop() C.int {
 	instMu.Lock()
 	defer instMu.Unlock()
 	return setErr(stopInstance())
 }
 
-//export Xray_Reload
 func Xray_Reload(jsonCfg *C.char) C.int {
 	instMu.Lock()
 	defer instMu.Unlock()
@@ -197,7 +177,6 @@ func Xray_Reload(jsonCfg *C.char) C.int {
 	if err != nil {
 		return setErr(err)
 	}
-	// Start new first, then stop old for minimal downtime.
 	if err := startInstance(newIns); err != nil {
 		return setErr(err)
 	}
@@ -207,7 +186,6 @@ func Xray_Reload(jsonCfg *C.char) C.int {
 	return setErr(nil)
 }
 
-//export Xray_PingOutbound
 // func Xray_PingOutbound(tag *C.char, host *C.char, port C.uint16_t, timeoutMs C.uint32_t) C.int {
 // 	if instance == nil {
 // 		return setErr(errors.New("not running"))
@@ -234,7 +212,6 @@ func tagOrEmpty(p *C.char) string {
 	return C.GoString(p)
 }
 
-//export Xray_PollLog
 func Xray_PollLog(dst *C.char, dstlen C.uint32_t) C.uint32_t {
 	if dst == nil || dstlen == 0 {
 		return 0
@@ -245,7 +222,6 @@ func Xray_PollLog(dst *C.char, dstlen C.uint32_t) C.uint32_t {
 		*(*byte)(unsafe.Pointer(dst)) = 0
 		return 0
 	}
-	// Return up to dstlen-1 bytes
 	n := int(dstlen) - 1
 	if n < 0 {
 		n = 0
@@ -258,7 +234,6 @@ func Xray_PollLog(dst *C.char, dstlen C.uint32_t) C.uint32_t {
 	return C.uint32_t(len(b) - 1)
 }
 
-//export Xray_StatsQuery
 func Xray_StatsQuery(name *C.char) C.int {
 	if instance == nil {
 		return setErr(errors.New("not running"))
@@ -272,7 +247,6 @@ func Xray_StatsQuery(name *C.char) C.int {
 	return setErr(nil)
 }
 
-//export Xray_WriteConfigFile
 func Xray_WriteConfigFile(path *C.char, jsonCfg *C.char) C.int {
 	if path == nil || jsonCfg == nil {
 		return setErr(errors.New("nil param"))
@@ -283,7 +257,6 @@ func Xray_WriteConfigFile(path *C.char, jsonCfg *C.char) C.int {
 	return setErr(nil)
 }
 
-//export Xray_ReadFile
 func Xray_ReadFile(path *C.char, dst *C.char, dstlen C.uint32_t) C.uint32_t {
 	if path == nil || dst == nil || dstlen == 0 {
 		return 0
@@ -300,7 +273,6 @@ func Xray_ReadFile(path *C.char, dst *C.char, dstlen C.uint32_t) C.uint32_t {
 		setErr(err)
 		return 0
 	}
-	// NUL terminate
 	buf = append(buf[:n], 0)
 	for i := 0; i < len(buf); i++ {
 		*(*byte)(unsafe.Add(unsafe.Pointer(dst), i)) = buf[i]
@@ -308,7 +280,4 @@ func Xray_ReadFile(path *C.char, dst *C.char, dstlen C.uint32_t) C.uint32_t {
 	return C.uint32_t(n)
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Required to satisfy cshared main
-// ──────────────────────────────────────────────────────────────────────────────
 func main() {}
